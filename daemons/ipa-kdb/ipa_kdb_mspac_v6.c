@@ -103,8 +103,29 @@ static krb5_error_code ipadb_sign_pac(krb5_context context,
                                       krb5_keyblock *krbtgt_key,
                                       krb5_timestamp authtime,
                                       krb5_pac pac,
-                                      krb5_data *pac_data)
+                                      krb5_authdata ***signed_auth_data)
 {
+#ifdef HAVE_KRB5_KDC_SIGN_TICKET
+    krb5_enc_tkt_part enc_tkt = {
+        /* .magic not set */
+        /* .flags not set */
+        /* .session not set */
+        /* .client not set */
+        .transited = {0},
+        .times = {
+            .authtime = authtime,
+            /* .starttime not set */
+            /* .endtime not set */
+            /* .renew_till not set */
+        },
+        /* .caddrs not set */
+        /* .authorization_data not set */
+    };
+#else
+    krb5_authdata *authdata[2] = { NULL, NULL };
+    krb5_authdata ad;
+    krb5_data pac_data;
+#endif
     krb5_keyblock *right_krbtgt_signing_key = NULL;
     krb5_key_data *right_krbtgt_key;
     krb5_db_entry *right_krbtgt = NULL;
@@ -176,11 +197,37 @@ static krb5_error_code ipadb_sign_pac(krb5_context context,
 
     /* only pass with_realm TRUE when it is cross-realm ticket and S4U2Self
      * was requested */
+#ifdef HAVE_KRB5_KDC_SIGN_TICKET
+    kerr = krb5_kdc_sign_ticket(context, &enc_tkt, pac, server->princ,
+                                client_princ, server_key,
+                                right_krbtgt_signing_key,
+                                (is_issuing_referral &&
+                                 (flags & KRB5_KDB_FLAG_PROTOCOL_TRANSITION)));
+    *signed_auth_data = enc_tkt.authorization_data;
+#else
     kerr = krb5_pac_sign_ext(context, pac, authtime, client_princ, server_key,
                              right_krbtgt_signing_key,
                              (is_issuing_referral &&
                               (flags & KRB5_KDB_FLAG_PROTOCOL_TRANSITION)),
-                             pac_data);
+                             &pac_data);
+    if (kerr) {
+        goto done;
+    }
+
+    /* put in signed data */
+    ad.magic = KV5M_AUTHDATA;
+    ad.ad_type = KRB5_AUTHDATA_WIN2K_PAC;
+    ad.contents = (krb5_octet *)pac_data.data;
+    ad.length = pac_data.length;
+
+    authdata[0] = &ad;
+
+    kerr = krb5_encode_authdata_container(context,
+                                          KRB5_AUTHDATA_IF_RELEVANT,
+                                          authdata,
+                                          signed_auth_data);
+    krb5_free_data_contents(context, &pac_data);
+#endif
 
 done:
     free(princ);
@@ -209,12 +256,9 @@ krb5_error_code ipadb_sign_authdata(krb5_context context,
 {
     krb5_const_principal ks_client_princ;
     krb5_authdata **pac_auth_data = NULL;
-    krb5_authdata *authdata[2] = { NULL, NULL };
-    krb5_authdata ad;
     krb5_boolean is_as_req;
     krb5_error_code kerr;
     krb5_pac pac = NULL;
-    krb5_data pac_data;
     struct ipadb_context *ipactx;
     bool with_pac;
     bool with_pad;
@@ -343,29 +387,8 @@ krb5_error_code ipadb_sign_authdata(krb5_context context,
     }
 
     kerr = ipadb_sign_pac(context, flags, ks_client_princ, server, krbtgt,
-                          server_key, krbtgt_key, authtime, pac, &pac_data);
-    if (kerr != 0) {
-        goto done;
-    }
-
-    /* put in signed data */
-    ad.magic = KV5M_AUTHDATA;
-    ad.ad_type = KRB5_AUTHDATA_WIN2K_PAC;
-    ad.contents = (krb5_octet *)pac_data.data;
-    ad.length = pac_data.length;
-
-    authdata[0] = &ad;
-
-    kerr = krb5_encode_authdata_container(context,
-                                          KRB5_AUTHDATA_IF_RELEVANT,
-                                          authdata,
-                                          signed_auth_data);
-    krb5_free_data_contents(context, &pac_data);
-    if (kerr != 0) {
-        goto done;
-    }
-
-    kerr = 0;
+                          server_key, krbtgt_key, authtime, pac,
+                          signed_auth_data);
 
 done:
     if (client_entry != NULL && client_entry != client) {

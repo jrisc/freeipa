@@ -91,6 +91,15 @@ AC_CHECK_MEMBER([kdb_vftabl.issue_pac],
                 [have_kdb_issue_pac=no], [#include <kdb.h>])
 
 dnl ---------------------------------------------------------------------------
+dnl - Check for KRB5 krb5_kdc_sign_ticket function
+dnl ---------------------------------------------------------------------------
+
+AC_CHECK_LIB(krb5, krb5_kdc_sign_ticket,
+             [AC_DEFINE([HAVE_KRB5_KDC_SIGN_TICKET], [1],
+                        [krb5_kdc_sign_ticket() is available.])],
+             [AC_MSG_NOTICE([krb5_kdc_sign_ticket() is not available])])
+
+dnl ---------------------------------------------------------------------------
 dnl - Check for UUID library
 dnl ---------------------------------------------------------------------------
 PKG_CHECK_MODULES([UUID], [uuid])
