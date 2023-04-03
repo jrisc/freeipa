@@ -31,6 +31,7 @@ from ipaserver import topology
 from ipaserver.servroles import ENABLED, HIDDEN
 from ipaserver.install import bindinstance, dnskeysyncinstance
 from ipaserver.install.service import hide_services, enable_services
+from ipaserver.masters import reset_pac_tkt_sign_enforcement
 from ipaserver.plugins.privilege import principal_has_privilege
 
 __doc__ = _("""
@@ -728,6 +729,15 @@ class server_del(LDAPDelete):
         except errors.NotFound:
             pass
 
+    def _update_pac_tkt_sign_enforcement(self):
+        try:
+            reset_pac_tkt_sign_enforcement(api=self.api)
+        except Exception as e:
+            self.add_message(
+                messages.ServerRemovalWarning(
+                    message=_('Failed to reset PAC ticket verification '
+                              f'policy: {str(e)}')))
+
     def pre_callback(self, ldap, dn, *keys, **options):
         pkey = self.obj.get_primary_key_from_dn(dn)
 
@@ -781,6 +791,9 @@ class server_del(LDAPDelete):
 
         # try to clean up the DNS config from ldap
         self._cleanup_server_dns_config(pkey)
+
+        # make PAC ticket signature required if supported by all servers
+        self._update_pac_tkt_sign_enforcement()
 
         return dn
 

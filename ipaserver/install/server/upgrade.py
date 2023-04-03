@@ -58,6 +58,7 @@ from ipaserver.install import adtrustinstance
 from ipaserver.install import replication
 from ipaserver.install.upgradeinstance import IPAUpgrade
 from ipaserver.install.ldapupdate import BadSyntax
+from ipaserver masters import reset_pac_tkt_sign_enforcement
 
 import six
 # pylint: disable=import-error
@@ -1960,6 +1961,9 @@ def upgrade_configuration():
     setup_pkinit(krb)
     enable_server_snippet()
     setup_kpasswd_server(krb)
+
+    krb.pac_tkt_sign_support_enable()
+    reset_pac_tkt_sign_enforcement(api=api)
 
     # Must be executed after certificate_renewal_update
     # (see function docstring for details)

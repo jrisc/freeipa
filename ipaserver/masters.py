@@ -10,6 +10,8 @@ import collections
 import logging
 import random
 
+from ipaplatform.paths import paths
+from ipapython import ipautil
 from ipapython.dn import DN
 from ipalib import api
 from ipalib import errors
@@ -17,9 +19,11 @@ from ipalib import errors
 logger = logging.getLogger(__name__)
 
 # constants for ipaConfigString
-CONFIGURED_SERVICE = u'configuredService'
-ENABLED_SERVICE = u'enabledService'
-HIDDEN_SERVICE = u'hiddenService'
+CONFIGURED_SERVICE     = u'configuredService'
+ENABLED_SERVICE        = u'enabledService'
+HIDDEN_SERVICE         = u'hiddenService'
+PAC_TKT_SIGN_SUPPORTED = u'pacTktSignSupported'
+PKINIT_ENABLED         = u'pkinitEnabled'
 
 # The service name as stored in cn=masters,cn=ipa,cn=etc. The values are:
 # 0: systemd service name
@@ -195,3 +199,63 @@ def is_service_enabled(svcname, conn=None, api=api):
         return False
     else:
         return True
+
+
+def reset_pac_tkt_sign_enforcement(conn=None, api=api):
+    kdc_pac_tkt_attr = 'optional_pac_tkt_chksum'
+
+    allServersSupportTktSign = True
+    currently_optional = False
+
+    if not conn:
+        conn = api.Backend.ldap2
+
+    tgs_princ = f'krbtgt/{api.env.realm}@{api.env.realm}'
+
+    # Get servers list
+    servers = get_masters(conn, api)
+
+    # For each server, check PAC ticket signature support
+    for server in servers:
+        entry = conn.get_entry(
+            DN(
+                ('cn', 'KDC'),
+                ('cn', server),
+                api.env.container_masters,
+                api.env.basedn
+            ),
+            ['ipaConfigString']
+        )
+
+        if not any(c.lower() == PAC_TKT_SIGN_SUPPORTED.lower()
+                   for c in entry['ipaConfigString']):
+            allServersSupportTktSign = False
+            break
+
+    # Check current PAC ticket signature verification policy
+    result = ipautil.run(
+        [paths.KADMIN_LOCAL],
+        stdin=f'get_strings {tgs_princ}',
+        capture_output=True,
+        raiseonerr=True
+    )
+
+    match = re.search(rf'^ *{kdc_pac_tkt_attr} +([^ ]+) *$', result.output)
+    if match:
+        currently_optional = any(match.group(1).lower() == v
+            for v in ['true', 't', 'yes', 'y', '1', 'on'])
+
+    # If the policy setting is not matching the capabilities of the
+    # servers, update it
+    if currently_optional == allServersSupportTktSign:
+        if allServersSupportTktSign:
+            option = "false"
+        else:
+            option = "true"
+
+        result = ipautil.run(
+            [paths.KADMIN_LOCAL],
+            stdin=f'set_string {tgs_princ} {kdc_pac_tkt_attr} {option}',
+            skip_output=True,
+            raiseonerr=True
+        )

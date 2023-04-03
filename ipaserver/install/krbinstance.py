@@ -42,14 +42,16 @@ from ipapython.dogtag import KDC_PROFILE
 
 from ipaserver.install import replication
 from ipaserver.install import certs
-from ipaserver.masters import find_providing_servers
+from ipaserver.masters import (
+    find_providing_servers,
+    PAC_TKT_SIGN_SUPPORTED,
+    PKINIT_ENABLED,
+)
 from ipaplatform.constants import constants
 from ipaplatform.tasks import tasks
 from ipaplatform.paths import paths
 
 logger = logging.getLogger(__name__)
-
-PKINIT_ENABLED = 'pkinitEnabled'
 
 MASTER_KEY_TYPE = 'aes256-sha2'
 SUPPORTED_ENCTYPES = ('aes256-sha2:special', 'aes128-sha2:special',
@@ -205,6 +207,7 @@ class KrbInstance(service.Service):
         self.step("adding kerberos container to the directory", self.__add_krb_container)
         self.step("configuring KDC", self.__configure_instance)
         self.step("initialize kerberos container", self.__init_ipa_kdb)
+        self.step("set PAC ticket signature support flag", self.pac_tkt_sign_support_enable)
         self.step("adding default ACIs", self.__add_default_acis)
         self.step("creating a keytab for the directory", self.__create_ds_keytab)
         self.step("creating a keytab for the machine", self.__create_host_keytab)
@@ -231,6 +234,7 @@ class KrbInstance(service.Service):
         self.__common_setup(realm_name, host_name, domain_name, admin_password)
 
         self.step("configuring KDC", self.__configure_instance)
+        self.step("set PAC ticket signature support flag", self.pac_tkt_sign_support_enable)
         self.step("adding the password extension to the directory", self.__add_pwd_extop_module)
 
         self.__common_post_setup()
@@ -491,6 +495,13 @@ class KrbInstance(service.Service):
         """
         service.set_service_entry_config(
             'KDC', self.fqdn, [PKINIT_ENABLED], self.suffix)
+
+    def pac_tkt_sign_support_enable(self):
+        """
+        advertise PAC ticket signature support in master's KDC entry in LDAP
+        """
+        service.set_service_entry_config(
+            'KDC', self.fqdn, [PAC_TKT_SIGN_SUPPORTED], self.suffix)
 
     def pkinit_disable(self):
         """
