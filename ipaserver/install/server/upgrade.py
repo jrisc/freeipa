@@ -1961,6 +1961,10 @@ def upgrade_configuration():
     enable_server_snippet()
     setup_kpasswd_server(krb)
 
+    if KRB5_VERSION_MAJOR > 1 or (
+       KRB5_VERSION_MAJOR == 1 and KRB5_VERSION_MINOR >= 20):
+        krb.pac_tkt_sign_support_enable()
+
     # Must be executed after certificate_renewal_update
     # (see function docstring for details)
     http_certificate_ensure_ipa_ca_dnsname(http)
