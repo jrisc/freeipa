@@ -358,27 +358,29 @@ static int sid_split_rid(struct dom_sid *sid, uint32_t *rid)
     return 0;
 }
 
-static bool is_master_host(struct ipadb_context *ipactx, const char *fqdn)
+static krb5_error_code
+is_master_host(struct ipadb_context *ipactx, const char *fqdn, bool *result)
 {
-    int ret;
+    int err;
     char *master_host_base = NULL;
-    LDAPMessage *result = NULL;
-    krb5_error_code err;
+    LDAPMessage *ldap_res = NULL;
 
-    ret = asprintf(&master_host_base, "cn=%s,cn=masters,cn=ipa,cn=etc,%s",
+    err = asprintf(&master_host_base, "cn=%s,cn=masters,cn=ipa,cn=etc,%s",
                                       fqdn, ipactx->base);
-    if (ret == -1) {
-        return false;
-    }
-    err = ipadb_simple_search(ipactx, master_host_base, LDAP_SCOPE_BASE,
-                              NULL, NULL, &result);
-    free(master_host_base);
-    ldap_msgfree(result);
-    if (err == 0) {
-        return true;
-    }
+    if (err == -1)
+        return ENOMEM;
 
-    return false;
+    err = ipadb_simple_search(ipactx, master_host_base, LDAP_SCOPE_BASE,
+                              NULL, NULL, &ldap_res);
+    free(master_host_base);
+    ldap_msgfree(ldap_res);
+    if (err != KRB5_KDB_NOENTRY && err != 0)
+        return err;
+
+    if (result)
+        *result = err != KRB5_KDB_NOENTRY;
+
+    return 0;
 }
 
 static krb5_error_code ipadb_fill_info3(struct ipadb_context *ipactx,
@@ -426,6 +428,8 @@ static krb5_error_code ipadb_fill_info3(struct ipadb_context *ipactx,
     }
 
     if (is_host) {
+        bool is_master;
+
         ret = ipadb_ldap_attr_to_str(ipactx->lcontext, lentry, "fqdn", &strres);
         if (ret) {
             /* fqdn is mandatory for hosts */
@@ -434,7 +438,12 @@ static krb5_error_code ipadb_fill_info3(struct ipadb_context *ipactx,
 
         /* Currently we only add a PAC to TGTs for IPA servers to allow SSSD in
          * ipa_server_mode to access the AD LDAP server */
-        if (!is_master_host(ipactx, strres)) {
+        ret = is_master_host(ipactx, strres, &is_master);
+        if (ret) {
+            free(strres);
+            return ret;
+        }
+        if (!is_master) {
             free(strres);
             return ENOENT;
         }
