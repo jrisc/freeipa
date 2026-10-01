@@ -35,6 +35,7 @@ from ipaserver.install import service
 from ipaserver.install import installutils
 from ipapython import ipaldap
 from ipapython import ipautil
+from ipapython.ipachangeconf import IPAChangeConf
 from ipapython import kernel_keyring
 from ipapython.version import KRB5_BUILD_VERSION
 from ipalib import api, errors
@@ -638,6 +639,32 @@ class KrbInstance(service.Service):
         except Exception:
             logger.critical("krb5kdc service failed to restart")
             raise
+
+        self.enable_auto_fast_armor()
+
+    def enable_auto_fast_armor(self):
+        """Enable auto_fast_armor in the realm krb5.conf snippet.
+
+        This must be called after PKINIT is configured and the KDC is
+        restarted, so that anonymous PKINIT is available when clients
+        attempt to use FAST armor.
+        """
+        krbconf = IPAChangeConf("IPA Installer")
+        krbconf.setOptionAssignment((" = ", " "))
+        krbconf.setSectionNameDelimiters(("[", "]"))
+        krbconf.setSubSectionDelimiters(("{", "}"))
+        krbconf.setIndent(("", "  ", "    "))
+
+        ropts = [{
+            'name': self.realm,
+            'type': 'subsection',
+            'value': [
+                krbconf.setOption('auto_fast_armor', 'true'),
+            ],
+            'action': 'set'
+        }]
+        opts = [krbconf.setSection('realms', ropts)]
+        krbconf.changeConf(paths.KRB5_FREEIPA, opts)
 
     def get_anonymous_principal_name(self):
         return "%s@%s" % (ANON_USER, self.realm)

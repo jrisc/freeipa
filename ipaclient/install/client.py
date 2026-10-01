@@ -685,6 +685,7 @@ def configure_krb5_realm(
         ])
 
     kropts.append(krbconf.setOption('default_domain', cli_domain))
+    kropts.append(krbconf.setOption('auto_fast_armor', 'true'))
     kropts.append(
         krbconf.setOption('pkinit_anchors',
                           'FILE:%s' % paths.KDC_CA_BUNDLE_PEM))
